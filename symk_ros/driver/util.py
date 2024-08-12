@@ -1,11 +1,14 @@
 import os
 
 from . import returncodes
+from ament_index_python.packages import get_package_share_directory
 
 
 DRIVER_DIR = os.path.abspath(os.path.dirname(__file__))
 REPO_ROOT_DIR = os.path.dirname(DRIVER_DIR)
-BUILDS_DIR = os.path.join(REPO_ROOT_DIR, "builds")
+# BUILDS_DIR = os.path.join(REPO_ROOT_DIR, "builds")
+symk_ros_share_path = get_package_share_directory('symk_ros')
+BUILDS_DIR = os.path.join(symk_ros_share_path, "builds")
 
 
 def get_elapsed_time():
