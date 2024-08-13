@@ -1,0 +1,7 @@
+<class_libraries>
+  <library path="plansys2_symk_planner">
+    <class name="plansys2/SymkPlanner"  type="plansys2::SymkPlanner" base_class_type="plansys2::PlanSolverBase">
+      <description></description>
+    </class>
+  </library>
+</class_libraries>
