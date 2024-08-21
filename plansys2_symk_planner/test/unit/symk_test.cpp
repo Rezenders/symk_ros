@@ -54,6 +54,20 @@ void test_plan_generation(const std::string & argument = "")
   ASSERT_EQ(plan.value().items[2].action, "(talk leia jack jack m1)");
 }
 
+std::optional<std::filesystem::path> test_folder_creation(
+  const std::string & output_dir = "", const std::string & node_namespace = "")
+{
+  auto node = rclcpp_lifecycle::LifecycleNode::make_shared("test_node");
+  auto planner = std::make_shared<plansys2::SymkPlanner>();
+
+  planner->configure(node, "Symk");
+  if (!output_dir.empty()) {
+    node->set_parameter(rclcpp::Parameter("Symk.output_dir", output_dir));
+  }
+
+  return planner->create_folders(node_namespace);
+}
+
 TEST(symk_planner, generate_plan_good)
 {
   test_plan_generation();
@@ -64,7 +78,7 @@ TEST(symk_planner, generate_plan_good)
 //   test_plan_generation("-e");
 // }
 
-TEST(symk_planner, load_symk_plugin)
+TEST(symk_planner, load_popf_plugin)
 {
   try {
     pluginlib::ClassLoader<plansys2::PlanSolverBase> lp_loader(
@@ -90,11 +104,10 @@ TEST(symk_planner, check_1_ok_domain)
   auto planner = std::make_shared<plansys2::SymkPlanner>();
   planner->configure(node, "Symk");
 
-  bool result = planner->is_valid_domain(domain_str, "check_1_ok_domain");
+  bool result = planner->isDomainValid(domain_str, "check_1_ok_domain");
 
   ASSERT_TRUE(result);
 }
-
 
 TEST(symk_planner, check_2_error_domain)
 {
@@ -108,11 +121,10 @@ TEST(symk_planner, check_2_error_domain)
   auto planner = std::make_shared<plansys2::SymkPlanner>();
   planner->configure(node, "Symk");
 
-  bool result = planner->is_valid_domain(domain_str, "check_2_error_domain");
+  bool result = planner->isDomainValid(domain_str, "check_2_error_domain");
 
   ASSERT_FALSE(result);
 }
-
 
 TEST(symk_planner, generate_plan_unsolvable)
 {
@@ -156,6 +168,44 @@ TEST(symk_planner, generate_plan_error)
   auto plan = planner->getPlan(domain_str, problem_str);
 
   ASSERT_FALSE(plan);
+}
+
+TEST(symk_planner, create_folder_default)
+{
+  const auto output_dir = test_folder_creation();
+  ASSERT_TRUE(output_dir.has_value());
+  EXPECT_EQ(output_dir.value(), std::filesystem::temp_directory_path());
+}
+
+TEST(symk_planner, create_folder_custom_path)
+{
+  const auto test_path = std::filesystem::temp_directory_path() / "test" / "path" / "one";
+  const auto output_dir = test_folder_creation(test_path);
+  ASSERT_TRUE(output_dir.has_value());
+  EXPECT_EQ(output_dir.value(), test_path);
+}
+
+TEST(symk_planner, create_folder_custom_path_and_namespace)
+{
+  const auto test_path = std::filesystem::temp_directory_path() / "test" / "path" / "two";
+  const auto test_namespace = "/test/node";
+  const auto output_dir = test_folder_creation(test_path, test_namespace);
+  ASSERT_TRUE(output_dir.has_value());
+  EXPECT_EQ(output_dir.value(), test_path / "test" / "node");
+}
+
+TEST(symk_planner, create_folder_filesystem_error)
+{
+  const auto test_path = std::filesystem::temp_directory_path() / "test" / "path" / "three";
+
+  // Create a file at the test path to force a filesystem error
+  std::ofstream out(test_path);
+  out << "random text\n";
+  out.close();
+
+  const auto test_namespace = "/test/node";
+  const auto output_dir = test_folder_creation(test_path, test_namespace);
+  ASSERT_FALSE(output_dir.has_value());
 }
 
 int main(int argc, char ** argv)

@@ -32,48 +32,105 @@ SymkPlanner::SymkPlanner()
 {
 }
 
+std::optional<std::filesystem::path>
+SymkPlanner::create_folders(const std::string & node_namespace)
+{
+  auto output_dir = lc_node_->get_parameter(output_dir_parameter_name_).value_to_string();
+
+  // Allow usage of the HOME directory with the `~` character, returning if there is an error.
+  const char * home_dir = std::getenv("HOME");
+  if (output_dir[0] == '~' && home_dir) {
+    output_dir.replace(0, 1, home_dir);
+  } else if (!home_dir) {
+    RCLCPP_ERROR(
+      lc_node_->get_logger(), "Invalid use of the ~ character in the path: %s", output_dir.c_str()
+    );
+    return std::nullopt;
+  }
+
+  // Create the necessary folders, returning if there is an error.
+  auto output_path = std::filesystem::path(output_dir);
+  if (node_namespace != "") {
+    for (auto p : std::filesystem::path(node_namespace) ) {
+      if (p != std::filesystem::current_path().root_directory()) {
+        output_path /= p;
+      }
+    }
+    try {
+      std::filesystem::create_directories(output_path);
+    } catch (std::filesystem::filesystem_error & err) {
+      RCLCPP_ERROR(lc_node_->get_logger(), "Error writing directories: %s", err.what());
+      return std::nullopt;
+    }
+  }
+  return output_path;
+}
+
 void SymkPlanner::configure(
-  rclcpp_lifecycle::LifecycleNode::SharedPtr & lc_node,
+  rclcpp_lifecycle::LifecycleNode::SharedPtr lc_node,
   const std::string & plugin_name)
 {
-  parameter_name_ = plugin_name + ".arguments";
   lc_node_ = lc_node;
-  lc_node_->declare_parameter<std::string>(parameter_name_, "");
+
+  arguments_parameter_name_ = plugin_name + ".arguments";
+  lc_node_->declare_parameter<std::string>(arguments_parameter_name_, "");
+
+  output_dir_parameter_name_ = plugin_name + ".output_dir";
+  lc_node_->declare_parameter<std::string>(
+    output_dir_parameter_name_, std::filesystem::temp_directory_path());
 }
 
 std::optional<plansys2_msgs::msg::Plan>
 SymkPlanner::getPlan(
   const std::string & domain, const std::string & problem,
-  const std::string & node_namespace)
+  const std::string & node_namespace,
+  const rclcpp::Duration solver_timeout)
 {
-  if (node_namespace != "") {
-    std::filesystem::path tp = std::filesystem::temp_directory_path();
-    for (auto p : std::filesystem::path(node_namespace) ) {
-      if (p != std::filesystem::current_path().root_directory()) {
-        tp /= p;
-      }
-    }
-    std::filesystem::create_directories(tp);
+  if (system(nullptr) == 0) {
+    return {};
   }
 
+  // Set up the folders
+  const auto output_dir_maybe = create_folders(node_namespace);
+  if (!output_dir_maybe) {
+    return {};
+  }
+  const auto & output_dir = output_dir_maybe.value();
+  RCLCPP_INFO(
+    lc_node_->get_logger(), "Writing planning results to %s.", output_dir.string().c_str());
+
+  // Perform planning
   plansys2_msgs::msg::Plan ret;
-  std::ofstream domain_out("/tmp/" + node_namespace + "/domain.pddl");
+
+  const auto domain_file_path = output_dir / std::filesystem::path("domain.pddl");
+  std::ofstream domain_out(domain_file_path);
   domain_out << domain;
   domain_out.close();
 
-  std::ofstream problem_out("/tmp/" + node_namespace + "/problem.pddl");
+  const auto problem_file_path = output_dir / std::filesystem::path("problem.pddl");
+  std::ofstream problem_out(problem_file_path);
   problem_out << problem;
   problem_out.close();
 
-  system(
-    ("ros2 run symk_ros fast-downward.py /tmp/" +
-    node_namespace + "/domain.pddl /tmp/" + node_namespace +
-    "/problem.pddl --search 'sym_bd()'" + lc_node_->get_parameter(parameter_name_).value_to_string()+
-    " > /tmp/" + node_namespace + "/plan")
+  RCLCPP_INFO(
+    lc_node_->get_logger(), "[%s-popf] called with timeout %f seconds",
+    lc_node_->get_name(), solver_timeout.seconds());
+
+  const auto plan_file_path = output_dir / std::filesystem::path("plan");
+  const auto args = lc_node_->get_parameter(arguments_parameter_name_).value_to_string();
+
+  const int status = system(
+    ("ros2 run symk_ros fast-downward.py " +
+    domain_file_path.string() + " " + problem_file_path.string() +
+    " --search 'sym_bd()' > " + plan_file_path.string())
     .c_str());
 
+  if (status == -1) {
+    return {};
+  }
+
   std::string line;
-  std::ifstream plan_file("/tmp/" + node_namespace + "/plan");
+  std::ifstream plan_file(plan_file_path);
   bool solution = false;
   float time = 0;
 
@@ -103,35 +160,54 @@ SymkPlanner::getPlan(
 
   if (ret.items.empty()) {
     return {};
-  } else {
-    return ret;
   }
+
+  return ret;
 }
 
 bool
-SymkPlanner::is_valid_domain(
+SymkPlanner::isDomainValid(
   const std::string & domain,
   const std::string & node_namespace)
 {
-  if (node_namespace != "") {
-    mkdir(("/tmp/" + node_namespace).c_str(), ACCESSPERMS);
+  if (system(nullptr) == 0) {
+    return false;
   }
 
-  std::ofstream domain_out("/tmp/" + node_namespace + "/check_domain.pddl");
+  // Set up the folders
+  const auto output_dir_maybe = create_folders(node_namespace);
+  if (!output_dir_maybe) {
+    return {};
+  }
+  const auto & output_dir = output_dir_maybe.value();
+  RCLCPP_INFO(
+    lc_node_->get_logger(), "Writing domain validation results to %s.",
+    output_dir.string().c_str()
+  );
+
+  // Perform domain validation
+  const auto domain_file_path = output_dir / std::filesystem::path("check_domain.pddl");
+  std::ofstream domain_out(domain_file_path);
   domain_out << domain;
   domain_out.close();
 
-  std::ofstream problem_out("/tmp/" + node_namespace + "/check_problem.pddl");
+  const auto problem_file_path = output_dir / std::filesystem::path("check_problem.pddl");
+  std::ofstream problem_out(problem_file_path);
   problem_out << "(define (problem void) (:domain simple) (:objects) (:init) (:goal))";
   problem_out.close();
 
-  system(
-    ("ros2 run symk_ros fast-downward.py /tmp/" +
-    node_namespace + "/check_domain.pddl /tmp/" +
-    node_namespace + "/check_problem.pddl --search 'sym_bd()' > /tmp/" +
-    node_namespace + "/check.out").c_str());
+  const auto plan_file_path = output_dir / std::filesystem::path("check.out");
 
-  std::ifstream plan_file("/tmp/" + node_namespace + "/check.out");
+  const int status = system(
+    ("ros2 run symk_ros fast-downward.py " + domain_file_path.string() + " " +
+    problem_file_path.string() + " --search 'sym_bd()' > " +
+    plan_file_path.string()).c_str());
+
+  if (status == -1) {
+    return false;
+  }
+
+  std::ifstream plan_file(plan_file_path);
 
   std::string result((std::istreambuf_iterator<char>(plan_file)),
     std::istreambuf_iterator<char>());

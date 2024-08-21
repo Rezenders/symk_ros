@@ -15,11 +15,14 @@
 #ifndef PLANSYS2_SYMK_PLANNER__SYMK_PLANNER_HPP_
 #define PLANSYS2_SYMK_PLANNER__SYMK_PLANNER_HPP_
 
+#include <filesystem>
 #include <optional>
 #include <memory>
 #include <string>
 
 #include "plansys2_core/PlanSolverBase.hpp"
+
+using std::chrono_literals::operator""s;
 
 namespace plansys2
 {
@@ -27,21 +30,25 @@ namespace plansys2
 class SymkPlanner : public PlanSolverBase
 {
 private:
-  std::string parameter_name_;
+  std::string arguments_parameter_name_;
+  std::string output_dir_parameter_name_;
   rclcpp_lifecycle::LifecycleNode::SharedPtr lc_node_;
 
 public:
   SymkPlanner();
 
-  void configure(rclcpp_lifecycle::LifecycleNode::SharedPtr &, const std::string &);
+  std::optional<std::filesystem::path> create_folders(const std::string & node_namespace);
+
+  void configure(rclcpp_lifecycle::LifecycleNode::SharedPtr, const std::string &);
 
   std::optional<plansys2_msgs::msg::Plan> getPlan(
     const std::string & domain, const std::string & problem,
-    const std::string & node_namespace = "");
+    const std::string & node_namespace = "",
+    const rclcpp::Duration solver_timeout = 15s);
 
-  bool is_valid_domain(
-    const std::string & domain,
-    const std::string & node_namespace = "");
+    bool isDomainValid(
+      const std::string & domain,
+      const std::string & node_namespace = "");
 };
 
 }  // namespace plansys2
