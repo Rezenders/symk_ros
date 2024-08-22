@@ -113,7 +113,7 @@ SymkPlanner::getPlan(
   problem_out.close();
 
   RCLCPP_INFO(
-    lc_node_->get_logger(), "[%s-popf] called with timeout %f seconds",
+    lc_node_->get_logger(), "[%s-symk] called with timeout %f seconds",
     lc_node_->get_name(), solver_timeout.seconds());
 
   const auto plan_file_path = output_dir / std::filesystem::path("plan");
@@ -148,6 +148,7 @@ SymkPlanner::getPlan(
 
         item.time = time;
         item.action = action;
+        item.duration = 1.0;
         time += 1.0;
 
         ret.items.push_back(item);
