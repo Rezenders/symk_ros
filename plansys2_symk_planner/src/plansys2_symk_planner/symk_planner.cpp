@@ -86,7 +86,7 @@ SymkPlanner::getPlan(
   const std::string & node_namespace,
   const rclcpp::Duration solver_timeout)
 {
-  if (system(nullptr) == 0) {
+  if (system(nullptr) == 0 || problem.length() == 0) {
     return {};
   }
 
@@ -132,7 +132,6 @@ SymkPlanner::getPlan(
   std::string line;
   std::ifstream plan_file(plan_file_path);
   bool solution = false;
-  float time = 0;
 
   if (plan_file.is_open()) {
     while (getline(plan_file, line)) {
@@ -146,10 +145,7 @@ SymkPlanner::getPlan(
 
         std::string action = "(" + line.substr(0, bracket_pos-1)+")";
 
-        item.time = time;
         item.action = action;
-        item.duration = 1.0;
-        time += 1.0;
 
         ret.items.push_back(item);
       } else if (line.front() == '[') {
